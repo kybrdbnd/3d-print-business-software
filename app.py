@@ -2,6 +2,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QWidget
 
+from inventory_db import initialize_db
 from inventory_widget import InventoryWidget
 
 
@@ -46,6 +47,7 @@ class MainWindow(QWidget):
 
 
 if __name__ == "__main__":
+    initialize_db()
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

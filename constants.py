@@ -11,3 +11,12 @@ FILAMENTS = [
     "PETG Translucent",
     "PETG CF",
 ]
+
+
+ORDER_STATUSES = [
+    "Pending",
+    "In Progress",
+    "Completed",
+    "Cancelled",
+    "Refunded",
+]

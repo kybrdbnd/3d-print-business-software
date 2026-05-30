@@ -1,5 +1,8 @@
 import sqlite3
+from datetime import datetime
 from pathlib import Path
+
+from constants import DEFAULT_ORDER_STATUS
 
 DB_PATH = Path(__file__).resolve().parent / "inventory.db"
 
@@ -10,7 +13,10 @@ CREATE TABLE IF NOT EXISTS orders (
     order_name TEXT NOT NULL,
     total_cost REAL NOT NULL DEFAULT 0.0,
     email_id TEXT NOT NULL,
-    phone_number TEXT NOT NULL
+    phone_number TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'New',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )
 """
 
@@ -42,6 +48,25 @@ def initialize_orders_db():
     with get_connection() as conn:
         conn.execute(CREATE_ORDERS_TABLE_SQL)
         conn.execute(CREATE_ORDER_ITEMS_TABLE_SQL)
+
+        # Ensure old databases gain the new status and timestamp columns.
+        columns = [row[1] for row in conn.execute("PRAGMA table_info('orders')").fetchall()]
+        if "status" not in columns:
+            default_status = DEFAULT_ORDER_STATUS.replace("'", "''")
+            conn.execute(f"ALTER TABLE orders ADD COLUMN status TEXT NOT NULL DEFAULT '{default_status}'")
+
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        if "created_at" not in columns:
+            conn.execute(
+                f"ALTER TABLE orders ADD COLUMN created_at TEXT NOT NULL DEFAULT '{now}'"
+            )
+            conn.execute("UPDATE orders SET created_at = ?", (now,))
+        if "updated_at" not in columns:
+            conn.execute(
+                f"ALTER TABLE orders ADD COLUMN updated_at TEXT NOT NULL DEFAULT '{now}'"
+            )
+            conn.execute("UPDATE orders SET updated_at = ?", (now,))
+
         cursor = conn.execute("SELECT COUNT(1) FROM orders")
         count = cursor.fetchone()[0]
         if count == 0:
@@ -64,7 +89,7 @@ def generate_invoice_number() -> str:
 def get_all_orders():
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, invoice_number, order_name, total_cost, email_id, phone_number FROM orders ORDER BY invoice_number"
+            "SELECT id, invoice_number, order_name, total_cost, email_id, phone_number, status, created_at, updated_at FROM orders ORDER BY invoice_number"
         ).fetchall()
     return rows
 
@@ -72,7 +97,7 @@ def get_all_orders():
 def get_order_invoice_number(invoice_number: str):
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, invoice_number, order_name, total_cost, email_id, phone_number FROM orders WHERE invoice_number = ? COLLATE NOCASE",
+            "SELECT id, invoice_number, order_name, total_cost, email_id, phone_number, status, created_at, updated_at FROM orders WHERE invoice_number = ? COLLATE NOCASE",
             (invoice_number,),
         ).fetchone()
     return row
@@ -98,6 +123,7 @@ def add_order(
     total_cost: float,
     email_id: str,
     phone_number: str,
+    status: str = DEFAULT_ORDER_STATUS,
     items: list = None,
 ):
     """Add a new order with auto-generated invoice number.
@@ -107,13 +133,14 @@ def add_order(
         total_cost: Total cost of the order
         email_id: Customer email
         phone_number: Customer phone
+        status: Order status
         items: List of tuples (item_name, quantity, price_per_unit)
     """
     invoice_number = generate_invoice_number()
     with get_connection() as conn:
         cursor = conn.execute(
-            "INSERT INTO orders (invoice_number, order_name, total_cost, email_id, phone_number) VALUES (?, ?, ?, ?, ?)",
-            (invoice_number, order_name, total_cost, email_id, phone_number),
+            "INSERT INTO orders (invoice_number, order_name, total_cost, email_id, phone_number, status) VALUES (?, ?, ?, ?, ?, ?)",
+            (invoice_number, order_name, total_cost, email_id, phone_number, status),
         )
         order_id = cursor.lastrowid
         if items:
@@ -133,12 +160,13 @@ def update_order(
     total_cost: float,
     email_id: str,
     phone_number: str,
+    status: str,
     items: list = None,
 ):
     with get_connection() as conn:
         conn.execute(
-            "UPDATE orders SET invoice_number = ?, order_name = ?, total_cost = ?, email_id = ?, phone_number = ? WHERE id = ?",
-            (invoice_number, order_name, total_cost, email_id, phone_number, order_id),
+            "UPDATE orders SET invoice_number = ?, order_name = ?, total_cost = ?, email_id = ?, phone_number = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (invoice_number, order_name, total_cost, email_id, phone_number, status, order_id),
         )
         if items is not None:
             conn.execute("DELETE FROM order_items WHERE order_id = ?", (order_id,))

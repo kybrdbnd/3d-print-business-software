@@ -1,4 +1,9 @@
+import csv
+from datetime import datetime
+from pathlib import Path
+
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QPainter, QPageSize, QPdfWriter
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -7,6 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QFileDialog,
     QMessageBox,
     QPushButton,
     QSpinBox,
@@ -26,11 +32,14 @@ from orders_db import (
     get_order_items,
     update_order,
 )
+from constants import ORDER_STATUSES, DEFAULT_ORDER_STATUS
+
 
 
 class OrdersWidget(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, send_grid=None, parent=None):
         super().__init__(parent)
+        self.send_grid = send_grid
         self.setWindowTitle("Orders")
         self.setStyleSheet(
             "QWidget { background: #121212; color: #e0e0e0; }"
@@ -50,6 +59,13 @@ class OrdersWidget(QWidget):
         header_label = QLabel("Orders")
         header_label.setStyleSheet("font-size: 18px; font-weight: bold;")
         header_layout.addWidget(header_label)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search by invoice # or email...")
+        self.search_input.setMinimumWidth(320)
+        self.search_input.textChanged.connect(self.on_search_text_changed)
+        header_layout.addWidget(self.search_input)
+
         header_layout.addStretch()
 
         self.add_button = QToolButton()
@@ -69,6 +85,40 @@ class OrdersWidget(QWidget):
         self.edit_button.clicked.connect(self.on_edit_order_clicked)
 
         header_layout.addWidget(self.add_button)
+
+        self.send_email_button = QToolButton()
+        self.send_email_button.setText("Send Email")
+        self.send_email_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
+        )
+        self.send_email_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.send_email_button.clicked.connect(self.on_send_email_clicked)
+        header_layout.addWidget(self.send_email_button)
+
+        self.generate_button = QToolButton()
+        self.generate_button.setText("Generate Invoice")
+        self.generate_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        )
+        self.generate_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.generate_button.clicked.connect(self.on_generate_invoice_clicked)
+        header_layout.addWidget(self.generate_button)
+
+        self.export_button = QToolButton()
+        self.export_button.setText("Export Orders")
+        self.export_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)
+        )
+        self.export_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.export_button.clicked.connect(self.on_export_orders_clicked)
+        header_layout.addWidget(self.export_button)
+
         header_layout.addWidget(self.edit_button)
 
         # Table without checkbox column
@@ -83,8 +133,8 @@ class OrdersWidget(QWidget):
         )
         self.table.horizontalHeader().setStretchLastSection(True)
         # Set minimum widths for email and phone columns to prevent truncation
-        self.table.setColumnWidth(3, 250)  # Email column
-        self.table.setColumnWidth(4, 150)  # Phone column
+        self.table.setColumnWidth(3, 320)  # Email column
+        self.table.setColumnWidth(4, 220)  # Phone column
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -102,10 +152,18 @@ class OrdersWidget(QWidget):
 
         self.load_orders()
 
-    def load_orders(self):
+    def load_orders(self, query=None):
         self.table.setRowCount(0)
         self.table.setSortingEnabled(False)
         orders = list(get_all_orders())
+        if query:
+            query_lower = query.strip().lower()
+            orders = [
+                order
+                for order in orders
+                if query_lower in order["invoice_number"].lower()
+                or query_lower in order["email_id"].lower()
+            ]
         self.table.setRowCount(len(orders))
         for row, order in enumerate(orders):
             self.table.setItem(row, 0, QTableWidgetItem(order["invoice_number"]))
@@ -113,8 +171,194 @@ class OrdersWidget(QWidget):
             self.table.setItem(row, 2, QTableWidgetItem(f"₹ {order['total_cost']:.2f}"))
             self.table.setItem(row, 3, QTableWidgetItem(order["email_id"]))
             self.table.setItem(row, 4, QTableWidgetItem(order["phone_number"]))
-            self.table.setItem(row, 5, QTableWidgetItem("Completed"))
+            status = order["status"] if "status" in order.keys() else "New"
+            self.table.setItem(row, 5, QTableWidgetItem(status))
         self.table.setSortingEnabled(True)
+
+    def on_search_text_changed(self, text):
+        self.load_orders(text)
+
+    def on_export_orders_clicked(self):
+        default_name = datetime.now().strftime("orders_export_%Y%m%d_%H%M%S.csv")
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Orders to CSV",
+            default_name,
+            "CSV Files (*.csv)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".csv"):
+            path += ".csv"
+
+        orders = get_all_orders()
+        headers = [
+            "Invoice #",
+            "Order Name",
+            "Total Cost (₹)",
+            "Email",
+            "Phone",
+            "Status",
+            "Created At",
+            "Updated At",
+        ]
+        try:
+            with open(path, "w", newline="", encoding="utf-8") as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(headers)
+                for order in orders:
+                    writer.writerow(
+                        [
+                            order["invoice_number"],
+                            order["order_name"],
+                            f"{order['total_cost']:.2f}",
+                            order["email_id"],
+                            order["phone_number"],
+                            order["status"],
+                            order["created_at"],
+                            order["updated_at"],
+                        ]
+                    )
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                f"Could not export orders:\n{exc}",
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Export Complete",
+            f"Orders exported successfully to:\n{path}",
+        )
+
+    def on_send_email_clicked(self):
+        if self.send_grid is None:
+            QMessageBox.warning(
+                self,
+                "Send Email",
+                "SendGrid client is not configured.",
+            )
+            return
+
+        selected = self.table.selectedItems()
+        if not selected:
+            QMessageBox.warning(
+                self,
+                "Send Email",
+                "Please select an order to send email for.",
+            )
+            return
+
+        row = self.table.currentRow()
+        invoice_number = self.table.item(row, 0).text()
+        selected_order = get_order_invoice_number(invoice_number)
+        if selected_order is None:
+            QMessageBox.warning(
+                self,
+                "Send Email",
+                "Selected order could not be found.",
+            )
+            return
+
+        order_items = get_order_items(selected_order["id"])
+        items = [
+            {
+                "item_name": item["item_name"],
+                "quantity": item["quantity"],
+                "price_per_unit": item["price_per_unit"],
+            }
+            for item in order_items
+        ]
+        invoice_items = [
+            (item["item_name"], item["quantity"], item["price_per_unit"])
+            for item in order_items
+        ]
+        pdf_path = self._generate_invoice_pdf(
+            invoice_number,
+            selected_order["order_name"],
+            selected_order["total_cost"],
+            selected_order["email_id"],
+            selected_order["phone_number"],
+            selected_order["status"] if "status" in selected_order.keys() else "New",
+            invoice_items,
+        )
+        context = {
+            "invoice_number": selected_order["invoice_number"],
+            "order_name": selected_order["order_name"],
+            "total_cost": f"{selected_order['total_cost']:.2f}",
+            "email_id": selected_order["email_id"],
+            "phone_number": selected_order["phone_number"],
+            "status": selected_order["status"] if "status" in selected_order.keys() else "New",
+            "items": items,
+        }
+        try:
+            self.send_grid.send_email(
+                to_email=selected_order["email_id"],
+                subject=f"Order Received: {invoice_number}",
+                template_name="order_received.html",
+                context=context,
+                attachments=[
+                    {
+                        "path": pdf_path,
+                        "filename": f"invoice_{invoice_number}.pdf",
+                        "mime_type": "application/pdf",
+                    }
+                ],
+            )
+            QMessageBox.information(
+                self,
+                "Email Sent",
+                f"Order email sent to {selected_order['email_id']}.",
+            )
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Send Email Failed",
+                f"Failed to send email:\n{exc}",
+            )
+
+    def on_generate_invoice_clicked(self):
+        selected = self.table.selectedItems()
+        if not selected:
+            QMessageBox.warning(
+                self,
+                "Generate Invoice",
+                "Please select an order to generate an invoice for.",
+            )
+            return
+
+        row = self.table.currentRow()
+        invoice_number = self.table.item(row, 0).text()
+        selected_order = get_order_invoice_number(invoice_number)
+        if selected_order is None:
+            QMessageBox.warning(
+                self,
+                "Generate Invoice",
+                "Selected order could not be found.",
+            )
+            return
+
+        order_items = get_order_items(selected_order["id"])
+        items = [
+            (item["item_name"], item["quantity"], item["price_per_unit"])
+            for item in order_items
+        ]
+        pdf_path = self._generate_invoice_pdf(
+            invoice_number,
+            selected_order["order_name"],
+            selected_order["total_cost"],
+            selected_order["email_id"],
+            selected_order["phone_number"],
+            selected_order["status"] if "status" in selected_order.keys() else "New",
+            items,
+        )
+        QMessageBox.information(
+            self,
+            "Invoice Generated",
+            f"Invoice generated successfully:\n{pdf_path}",
+        )
 
     def _show_order_form(
         self,
@@ -122,6 +366,7 @@ class OrdersWidget(QWidget):
         order_name="",
         email_id="",
         phone_number="",
+        order_status=DEFAULT_ORDER_STATUS,
         items=None,
         disable_invoice=False,
         invoice_number="",
@@ -135,7 +380,9 @@ class OrdersWidget(QWidget):
         form = QFormLayout()
         order_name_input = QLineEdit(order_name)
         email_input = QLineEdit(email_id)
+        email_input.setMinimumWidth(320)
         phone_input = QLineEdit(phone_number)
+        phone_input.setMinimumWidth(220)
 
         if disable_invoice:
             invoice_label = QLabel(invoice_number)
@@ -144,6 +391,11 @@ class OrdersWidget(QWidget):
         form.addRow("Order Name:", order_name_input)
         form.addRow("Email ID:", email_input)
         form.addRow("Phone Number:", phone_input)
+
+        status_input = QComboBox()
+        status_input.addItems(ORDER_STATUSES)
+        status_input.setCurrentText(order_status)
+        form.addRow("Status:", status_input)
 
         layout.addLayout(form)
 
@@ -240,6 +492,7 @@ class OrdersWidget(QWidget):
             total_cost_value,
             email_input.text().strip(),
             phone_input.text().strip(),
+            status_input.currentText(),
             items_data,
         )
 
@@ -340,16 +593,112 @@ class OrdersWidget(QWidget):
         if not result:
             return
 
-        order_name, total_cost, email_id, phone_number, items = result
+        order_name, total_cost, email_id, phone_number, status, items = result
         invoice_number = add_order(
-            order_name, total_cost, email_id, phone_number, items
+            order_name, total_cost, email_id, phone_number, status, items
+        )
+        pdf_path = self._generate_invoice_pdf(
+            invoice_number,
+            order_name,
+            total_cost,
+            email_id,
+            phone_number,
+            status,
+            items,
         )
         QMessageBox.information(
             self,
             "Order Created",
-            f"Order created successfully with invoice number {invoice_number}.",
+            f"Order created successfully with invoice number {invoice_number}.\nInvoice PDF saved to:\n{pdf_path}",
         )
         self.load_orders()
+
+    def _generate_invoice_pdf(
+        self,
+        invoice_number,
+        order_name,
+        total_cost,
+        email_id,
+        phone_number,
+        status,
+        items,
+    ):
+        file_name = f"invoice/invoice_{invoice_number}.pdf"
+        output_path = Path.cwd() / file_name
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        writer = QPdfWriter(str(output_path))
+        writer.setPageSize(QPageSize(QPageSize.A4))
+        writer.setResolution(300)
+
+        painter = QPainter(writer)
+        title_font = QFont("Helvetica", 28, QFont.Weight.Bold)
+        heading_font = QFont("Helvetica", 12, QFont.Weight.Bold)
+        normal_font = QFont("Helvetica", 10)
+
+        margin = 50
+        x_right = 450
+        line_height = 30
+        y = margin
+
+        painter.setFont(title_font)
+        painter.drawText(margin, y, "Invoice")
+        y += 50
+
+        painter.setFont(normal_font)
+        painter.drawText(margin, y, f"Invoice #: {invoice_number}")
+        painter.drawText(
+            x_right, y, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
+        )
+        y += line_height
+        painter.drawText(margin, y, f"Order Name: {order_name}")
+        y += line_height
+        painter.drawText(margin, y, f"Email: {email_id}")
+        y += line_height
+        painter.drawText(margin, y, f"Phone: {phone_number}")
+        y += line_height
+        painter.drawText(margin, y, f"Status: {status}")
+        y += line_height * 1.5
+
+        painter.setFont(heading_font)
+        painter.drawText(margin, y, "Item")
+        painter.drawText(margin + 260, y, "Quantity")
+        painter.drawText(margin + 360, y, "Price / g")
+        painter.drawText(margin + 460, y, "Cost")
+        y += line_height
+
+        painter.setPen(Qt.GlobalColor.black)
+        painter.drawLine(margin, y - 10, x_right + 80, y - 10)
+        y += 10
+        painter.setFont(normal_font)
+
+        page_height = writer.pageLayout().fullRect().height()
+        bottom_margin = 70
+
+        for item_name, quantity, price_per_unit in items:
+            if y > page_height - bottom_margin:
+                writer.newPage()
+                painter.setFont(normal_font)
+                y = margin + 20
+
+            cost = quantity * price_per_unit
+            painter.drawText(margin, y, item_name)
+            painter.drawText(margin + 260, y, str(quantity))
+            painter.drawText(margin + 360, y, f"{price_per_unit:.2f}")
+            painter.drawText(margin + 460, y, f"{cost:.2f}")
+            y += line_height
+
+        y += line_height
+        if y > page_height - bottom_margin:
+            writer.newPage()
+            painter.setFont(heading_font)
+            y = margin + 20
+
+        painter.setFont(heading_font)
+        painter.drawText(margin, y, f"Total Cost: ₹ {total_cost:.2f}")
+
+        painter.end()
+        return str(output_path)
 
     def on_edit_order_clicked(self):
         selected = self.table.selectedItems()
@@ -369,11 +718,17 @@ class OrdersWidget(QWidget):
             for item in order_items
         ]
 
+        current_status = (
+            get_selected_order["status"]
+            if "status" in get_selected_order.keys()
+            else DEFAULT_ORDER_STATUS
+        )
         result = self._show_order_form(
             "Edit Order",
             current_order_name,
             current_email,
             current_phone,
+            current_status,
             items,
             disable_invoice=True,
             invoice_number=current_invoice,
@@ -381,7 +736,7 @@ class OrdersWidget(QWidget):
         if not result:
             return
 
-        order_name, total_cost, email_id, phone_number, items = result
+        order_name, total_cost, email_id, phone_number, status, items = result
         update_order(
             get_selected_order["id"],
             current_invoice,
@@ -389,6 +744,7 @@ class OrdersWidget(QWidget):
             total_cost,
             email_id,
             phone_number,
+            status,
             items,
         )
         self.load_orders()

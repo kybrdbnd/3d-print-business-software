@@ -14,9 +14,12 @@ FILAMENTS = [
 
 
 ORDER_STATUSES = [
+    "New",
     "Pending",
     "In Progress",
     "Completed",
     "Cancelled",
     "Refunded",
 ]
+
+DEFAULT_ORDER_STATUS = ORDER_STATUSES[0]

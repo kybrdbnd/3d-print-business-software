@@ -1,16 +1,25 @@
 import sys
+import os
+from dotenv import load_dotenv
+
 
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QWidget
 
+from clients.send_grid import SendGridEmail
 from inventory_db import initialize_db
 from inventory_widget import InventoryWidget
 from orders_db import initialize_orders_db
 from orders_widget import OrdersWidget
 
+load_dotenv()
+
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+
 
 class MainWindow(QWidget):
-    def __init__(self):
+    def __init__(self, send_grid=None):
         super().__init__()
+        self.send_grid = send_grid
         self.setWindowTitle("3D Print Business")
         self.setStyleSheet(
             "QWidget { background: #121212; color: #e0e0e0; }"
@@ -36,7 +45,7 @@ class MainWindow(QWidget):
         self.setLayout(layout)
 
     def on_orders_clicked(self):
-        self.orders_window = OrdersWidget()
+        self.orders_window = OrdersWidget(send_grid=self.send_grid)
         self.orders_window.show()
 
     def on_inventory_clicked(self):
@@ -48,6 +57,7 @@ if __name__ == "__main__":
     initialize_db()
     initialize_orders_db()
     app = QApplication(sys.argv)
-    window = MainWindow()
+    send_grid = SendGridEmail(api_key=SENDGRID_API_KEY)
+    window = MainWindow(send_grid=send_grid)
     window.show()
     sys.exit(app.exec())

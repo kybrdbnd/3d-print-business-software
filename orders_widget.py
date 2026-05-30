@@ -1,5 +1,4 @@
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -20,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from inventory_db import get_all_items
-from orders_db import add_order, get_all_orders, get_order_items, order_exists, update_order
+from orders_db import add_order, get_all_orders, get_order_items, update_order
 
 
 class OrdersWidget(QWidget):
@@ -340,12 +339,12 @@ class OrdersWidget(QWidget):
 
         row = self.table.currentRow()
         orders = get_all_orders()
-        order_id = orders[row]["id"]
         current_invoice = self.table.item(row, 0).text()
         current_order_name = self.table.item(row, 1).text()
         current_email = self.table.item(row, 3).text()
         current_phone = self.table.item(row, 4).text()
-        order_items = get_order_items(order_id)
+        get_selected_order = [order for order in orders if order["invoice_number"] == current_invoice]
+        order_items = get_order_items(get_selected_order[0]["id"])
         items = [
             (item["item_name"], item["quantity"], item["price_per_unit"])
             for item in order_items
@@ -364,5 +363,5 @@ class OrdersWidget(QWidget):
             return
 
         order_name, total_cost, email_id, phone_number, items = result
-        update_order(order_id, current_invoice, order_name, total_cost, email_id, phone_number, items)
+        update_order(get_selected_order[0]["id"], current_invoice, order_name, total_cost, email_id, phone_number, items)
         self.load_orders()

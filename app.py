@@ -1,14 +1,25 @@
 import sys
+import os
+from dotenv import load_dotenv
+
 
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QWidget
 
+from clients.send_grid import SendGridEmail
 from inventory_db import initialize_db
 from inventory_widget import InventoryWidget
+from orders_db import initialize_orders_db
+from orders_widget import OrdersWidget
+
+load_dotenv()
+
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 
 
 class MainWindow(QWidget):
-    def __init__(self):
+    def __init__(self, send_grid=None):
         super().__init__()
+        self.send_grid = send_grid
         self.setWindowTitle("3D Print Business")
         self.setStyleSheet(
             "QWidget { background: #121212; color: #e0e0e0; }"
@@ -16,39 +27,37 @@ class MainWindow(QWidget):
             "QPushButton:hover { background: #2a2a2a; }"
         )
         self.inventory_window = None
+        self.orders_window = None
         self.setup_ui()
 
     def setup_ui(self):
         layout = QHBoxLayout()
 
-        self.book_order_button = QPushButton("Book a Order")
-        self.inventory_button = QPushButton("Inventory")
-        self.past_orders_button = QPushButton("Past Orders")
+        self.orders_button = QPushButton("Orders")
+        self.inventory_button = QPushButton("Inventory Management")
 
-        self.book_order_button.clicked.connect(self.on_book_order_clicked)
+        self.orders_button.clicked.connect(self.on_orders_clicked)
         self.inventory_button.clicked.connect(self.on_inventory_clicked)
-        self.past_orders_button.clicked.connect(self.on_past_orders_clicked)
 
-        layout.addWidget(self.book_order_button)
+        layout.addWidget(self.orders_button)
         layout.addWidget(self.inventory_button)
-        layout.addWidget(self.past_orders_button)
 
         self.setLayout(layout)
 
-    def on_book_order_clicked(self):
-        print("Book a Order clicked")
+    def on_orders_clicked(self):
+        self.orders_window = OrdersWidget(send_grid=self.send_grid)
+        self.orders_window.show()
 
     def on_inventory_clicked(self):
         self.inventory_window = InventoryWidget()
         self.inventory_window.show()
 
-    def on_past_orders_clicked(self):
-        print("Past Orders clicked")
-
 
 if __name__ == "__main__":
     initialize_db()
+    initialize_orders_db()
     app = QApplication(sys.argv)
-    window = MainWindow()
+    send_grid = SendGridEmail(api_key=SENDGRID_API_KEY)
+    window = MainWindow(send_grid=send_grid)
     window.show()
     sys.exit(app.exec())

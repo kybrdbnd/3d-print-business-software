@@ -19,7 +19,13 @@ from PySide6.QtWidgets import (
 )
 
 from inventory_db import get_all_items
-from orders_db import add_order, get_all_orders, get_order_items, update_order
+from orders_db import (
+    add_order,
+    get_all_orders,
+    get_order_invoice_number,
+    get_order_items,
+    update_order,
+)
 
 
 class OrdersWidget(QWidget):
@@ -150,7 +156,9 @@ class OrdersWidget(QWidget):
             ["Item", "Quantity", "Price / g", "Cost"]
         )
         self.order_items_table.horizontalHeader().setStretchLastSection(True)
-        self.order_items_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.order_items_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
         self.order_items_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.order_items_table.setColumnWidth(0, 220)
         self.order_items_table.setColumnWidth(1, 100)
@@ -220,7 +228,9 @@ class OrdersWidget(QWidget):
             items_data.append((item_name, quantity_value, price_per_unit))
 
         if not items_data:
-            QMessageBox.warning(self, title, "Please add at least one item to the order.")
+            QMessageBox.warning(
+                self, title, "Please add at least one item to the order."
+            )
             return None
 
         total_cost_value = sum(qty * price for _, qty, price in items_data)
@@ -236,7 +246,9 @@ class OrdersWidget(QWidget):
     def _load_order_items(self, items):
         self.order_items_table.setRowCount(0)
         inventory = get_all_items()
-        self._inventory_prices = {item["item_name"]: float(item["price"]) for item in inventory}
+        self._inventory_prices = {
+            item["item_name"]: float(item["price"]) for item in inventory
+        }
         self._inventory_names = [item["item_name"] for item in inventory]
 
         if not items:
@@ -302,15 +314,21 @@ class OrdersWidget(QWidget):
         if price_per_unit is None:
             selected_item = combo.currentText()
             price_per_unit = self._inventory_prices.get(selected_item, 0.0)
-        self.order_items_table.setItem(row, 2, QTableWidgetItem(f"{price_per_unit:.2f}"))
-        self.order_items_table.setItem(row, 3, QTableWidgetItem(f"{quantity * price_per_unit:.2f}"))
+        self.order_items_table.setItem(
+            row, 2, QTableWidgetItem(f"{price_per_unit:.2f}")
+        )
+        self.order_items_table.setItem(
+            row, 3, QTableWidgetItem(f"{quantity * price_per_unit:.2f}")
+        )
 
         self._refresh_order_total()
 
     def _remove_selected_order_item_row(self):
         selected_ranges = self.order_items_table.selectedRanges()
         if not selected_ranges:
-            QMessageBox.warning(self, "Remove Item", "Please select an item row to remove.")
+            QMessageBox.warning(
+                self, "Remove Item", "Please select an item row to remove."
+            )
             return
 
         row = selected_ranges[0].topRow()
@@ -323,7 +341,9 @@ class OrdersWidget(QWidget):
             return
 
         order_name, total_cost, email_id, phone_number, items = result
-        invoice_number = add_order(order_name, total_cost, email_id, phone_number, items)
+        invoice_number = add_order(
+            order_name, total_cost, email_id, phone_number, items
+        )
         QMessageBox.information(
             self,
             "Order Created",
@@ -338,13 +358,12 @@ class OrdersWidget(QWidget):
             return
 
         row = self.table.currentRow()
-        orders = get_all_orders()
         current_invoice = self.table.item(row, 0).text()
         current_order_name = self.table.item(row, 1).text()
         current_email = self.table.item(row, 3).text()
         current_phone = self.table.item(row, 4).text()
-        get_selected_order = [order for order in orders if order["invoice_number"] == current_invoice]
-        order_items = get_order_items(get_selected_order[0]["id"])
+        get_selected_order = get_order_invoice_number(current_invoice)
+        order_items = get_order_items(get_selected_order["id"])
         items = [
             (item["item_name"], item["quantity"], item["price_per_unit"])
             for item in order_items
@@ -363,5 +382,13 @@ class OrdersWidget(QWidget):
             return
 
         order_name, total_cost, email_id, phone_number, items = result
-        update_order(get_selected_order[0]["id"], current_invoice, order_name, total_cost, email_id, phone_number, items)
+        update_order(
+            get_selected_order["id"],
+            current_invoice,
+            order_name,
+            total_cost,
+            email_id,
+            phone_number,
+            items,
+        )
         self.load_orders()

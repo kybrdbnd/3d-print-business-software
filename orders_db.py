@@ -69,6 +69,15 @@ def get_all_orders():
     return rows
 
 
+def get_order_invoice_number(invoice_number: str):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, invoice_number, order_name, total_cost, email_id, phone_number FROM orders WHERE invoice_number = ? COLLATE NOCASE",
+            (invoice_number,),
+        ).fetchone()
+    return row
+
+
 def order_exists(invoice_number: str, exclude_id: int = None) -> bool:
     with get_connection() as conn:
         if exclude_id is None:
@@ -92,7 +101,7 @@ def add_order(
     items: list = None,
 ):
     """Add a new order with auto-generated invoice number.
-    
+
     Args:
         order_name: Name of the order
         total_cost: Total cost of the order
@@ -138,23 +147,6 @@ def update_order(
                     "INSERT INTO order_items (order_id, item_name, quantity, price_per_unit) VALUES (?, ?, ?, ?)",
                     (order_id, item_name, quantity, price_per_unit),
                 )
-        conn.commit()
-
-
-def get_order_items(order_id: int):
-    """Get all items for a specific order."""
-    with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT id, item_name, quantity, price_per_unit FROM order_items WHERE order_id = ? ORDER BY item_name",
-            (order_id,),
-        ).fetchall()
-    return rows
-
-
-def delete_order(order_id: int):
-    """Delete an order by id (order_items cascade deleted)."""
-    with get_connection() as conn:
-        conn.execute("DELETE FROM orders WHERE id = ?", (order_id,))
         conn.commit()
 
 
